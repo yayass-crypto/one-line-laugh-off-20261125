@@ -1,84 +1,78 @@
 #!/usr/bin/env python3
-"""One-line laugh entry: write a single funny line to the entry file."""
+"""Laugh-off entry: one funny sentence, written to entry.txt."""
+
+from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
-JOKE = "The librarian shushed me for laughing, so I read funny books in the parking lot like a criminal with a library card."
+LINE = "The librarian shushed me for laughing, so I read funny books in the parking lot like a criminal with a library card."
 
-MAX_CHARS = 200
-FILENAME = "entry.txt"
+LIMIT = 200
+NAME = "entry.txt"
 
 
-def pick_destination():
-    requested = os.environ.get("MAKEFUN_OUTPUT_DIR", "").strip()
-    candidates = [requested] if requested else []
-    candidates += ["/output", "out"]
-    for directory in candidates:
+class EntryError(ValueError):
+    """Raised when the line or the destination fails a check."""
+
+
+def _guard(text: str) -> bytes:
+    if not text:
+        raise EntryError("empty line")
+    if text != text.strip():
+        raise EntryError("leading or trailing whitespace")
+    if any(ord(c) < 32 for c in text):
+        raise EntryError("newline or control character present")
+    if len(text) > LIMIT:
+        raise EntryError(f"{len(text)} chars exceeds the {LIMIT} limit")
+    if "?" in text or "!" in text:
+        raise EntryError("question or exclamation mark present")
+    if not text.endswith("."):
+        raise EntryError("must end with a period")
+    body = text[:-1]
+    if ". " in body or ".." in body:
+        raise EntryError("more than one sentence")
+    return text.encode("utf-8")
+
+
+def _target() -> Path:
+    wanted = os.environ.get("MAKEFUN_OUTPUT_DIR", "").strip()
+    places = [Path(wanted)] if wanted else []
+    places.extend([Path("/output"), Path("out")])
+    for folder in places:
         try:
-            os.makedirs(directory, exist_ok=True)
-            probe = os.path.join(directory, ".write-probe")
-            with open(probe, "wb") as handle:
-                handle.write(b"")
-            os.unlink(probe)
+            folder.mkdir(parents=True, exist_ok=True)
+            probe = folder / ".write-probe"
+            probe.touch()
+            probe.unlink()
         except OSError:
             continue
-        return os.path.join(directory, FILENAME)
-    return os.path.join("/output", FILENAME)
+        return folder / NAME
+    return Path("/output") / NAME
 
 
-def find_problems(line):
-    problems = []
-    if not line:
-        problems.append("line is empty")
-    if line != line.strip():
-        problems.append("line has leading or trailing whitespace")
-    if "\n" in line or "\r" in line:
-        problems.append("line contains a newline character")
-    if any(ord(ch) < 32 for ch in line):
-        problems.append("line contains a control character")
-    if len(line) > MAX_CHARS:
-        problems.append("line is %d characters, over the %d limit" % (len(line), MAX_CHARS))
-    if "?" in line or "!" in line:
-        problems.append("line contains a question mark or exclamation mark")
-    if not line.endswith("."):
-        problems.append("line does not end with a period")
-    inner = line[:-1] if line.endswith(".") else line
-    if ". " in inner:
-        problems.append("line contains more than one sentence")
-    if ".." in inner:
-        problems.append("line contains a double period")
-    return problems
+def _save(dest: Path, payload: bytes) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(payload)
+    if dest.read_bytes() != payload:
+        raise EntryError("read-back bytes differ from the line")
 
 
-def main():
-    problems = find_problems(JOKE)
-    if problems:
-        for problem in problems:
-            sys.stderr.write("invalid line: %s\n" % problem)
-        return 1
-    path = pick_destination()
-    payload = JOKE.encode("utf-8")
+def run() -> int:
     try:
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(path, "wb") as handle:
-            handle.write(payload)
-        with open(path, "rb") as handle:
-            stored = handle.read()
-    except OSError as exc:
-        sys.stderr.write("could not write entry file: %s\n" % exc)
+        payload = _guard(LINE)
+        dest = _target()
+        _save(dest, payload)
+    except (EntryError, OSError) as exc:
+        print(f"entry failed: {exc}", file=sys.stderr)
         return 1
-    if stored != payload:
-        sys.stderr.write("verification failed: file bytes differ from the line\n")
-        return 1
-    print("wrote %s" % path)
-    print("characters: %d" % len(JOKE))
-    print("bytes: %d" % len(payload))
-    print(JOKE)
+    print(f"wrote {dest}")
+    print(f"characters: {len(LINE)}")
+    print(f"bytes: {len(payload)}")
+    print(LINE)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(run())
