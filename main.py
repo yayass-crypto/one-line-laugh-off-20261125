@@ -22,8 +22,8 @@ def _guard(text: str) -> bytes:
         raise EntryError("empty line")
     if text != text.strip():
         raise EntryError("leading or trailing whitespace")
-    if any(ord(c) < 32 for c in text):
-        raise EntryError("newline or control character present")
+    if any(ord(c) < 32 or ord(c) == 127 for c in text):
+        raise EntryError("newline, control, or DEL character present")
     if len(text) > LIMIT:
         raise EntryError(f"{len(text)} chars exceeds the {LIMIT} limit")
     if "?" in text or "!" in text:
